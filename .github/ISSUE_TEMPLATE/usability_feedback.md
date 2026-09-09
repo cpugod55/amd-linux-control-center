@@ -1,7 +1,7 @@
 ---
 name: Usability feedback
 about: Tell us what was unclear, hard to find, or not intuitive
- title: "[Usability] "
+title: "[Usability] "
 labels: ""
 assignees: ""
 ---
