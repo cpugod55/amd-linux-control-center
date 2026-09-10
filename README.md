@@ -4,6 +4,12 @@ AMD Linux Control Center (ALCC) is a capability-driven control and telemetry app
 
 > **Current status:** `v0.99.0-rc1` — release candidate for 1.0. Testers are wanted, especially users with AMD GPUs other than the RX 6800 XT.
 
+## Live gaming dashboard
+
+![ALCC live gaming dashboard](docs/screenshots/dashboard-gaming.png)
+
+Automatic game detection, live FPS and frame-time telemetry, GPU sensors, thermal monitoring, board power, clock behavior, fan speed, junction-to-edge delta, and recent performance history in one view.
+
 ## Features
 
 - AMD GPU detection and capability-based controls
@@ -16,6 +22,38 @@ AMD Linux Control Center (ALCC) is a capability-driven control and telemetry app
 - Display selection and related gaming/display controls
 - Multi-distro installer and runtime checks
 - Narrowly scoped PolicyKit authorization for supported GPU controls
+
+## Screenshots
+
+### GPU performance controls
+
+![ALCC GPU performance controls](docs/screenshots/gpu-performance.png)
+
+Capability-driven GPU controls with live readback, performance-limit monitoring, workload/profile handling, electrical telemetry, and driver-exposed limits.
+
+### Per-game profiles
+
+![ALCC per-game profile automation](docs/screenshots/game-profiles.png)
+
+Automatic per-game rules can link detected processes to saved GPU profiles and graphics/scaling presets, with restore behavior when the game exits.
+
+### Live performance analysis
+
+![ALCC live performance analysis](docs/screenshots/live-analysis.png)
+
+Live analysis combines game telemetry with GPU load, power, clocks, thermal context, and recent events to identify likely performance limits and provide evidence-backed recommendations.
+
+### Custom fan control
+
+![ALCC custom fan control](docs/screenshots/fan-control.png)
+
+Manual fan control and custom temperature-based fan curves use junction/hotspot temperature when available, with fallback to edge temperature on hardware that does not expose junction temperature.
+
+### Display controls
+
+![ALCC display controls](docs/screenshots/display-controls.png)
+
+Connected-display selection and controls for resolution, refresh rate, VRR/FreeSync policy, HDR, color depth, RGB range, wide color gamut, and brightness where supported.
 
 ## Tested distributions
 
