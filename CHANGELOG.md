@@ -3,6 +3,7 @@
 - Persists custom fan-curve points and the requested Custom Curve / AMD Automatic startup state, with safe automatic fallback if a restored curve cannot start.
 - Adds live fan-page thermal context for driver-exposed edge, junction/hotspot, memory temperature, junction-to-edge delta, fan percentage, and RPM.
 - Makes saved GPU profiles show a concise preview of the settings they will change before Apply; explicit profile fan modes are restored as part of profile application.
+- Makes the built-in Efficient Gaming and Quiet power targets derive from the GPU's reported default board-power target, while remaining clamped to the driver's writable range. If firmware exposes less than a meaningful reduction below default, ALCC now leaves the power target unchanged instead of presenting a 0-2 W adjustment as an adaptive power feature.
 - Improves Bazzite/rpm-ostree prerequisite guidance. Missing Tkinter now leads users through `rpm-ostree install`, reboot, system re-check, and installation without ALCC layering host packages automatically.
 - Moves the privileged GPU PolicyKit action to the project-owned `io.github.cpugod55.amd-linux-control-center` namespace and migrates/removes older ALCC policy metadata on mutable hosts.
 - Clarifies AMDGPU power-limit wording: the configured board power cap is a driver/firmware target, not a guarantee that every telemetry sample remains below the displayed value.
