@@ -14,7 +14,6 @@ POLICY_SRC="$ROOT_DIR/polkit/io.github.cpugod55.amd-linux-control-center.policy"
 
 HELPER_DST="/usr/local/libexec/amd-linux-control-center-profile-helper"
 POLICY_DST="/usr/share/polkit-1/actions/io.github.cpugod55.amd-linux-control-center.policy"
-LEGACY_POLICY_DST="/usr/share/polkit-1/actions/com.openai.amd-linux-control-center.policy"
 RULE_DST="/etc/polkit-1/rules.d/49-amd-linux-control-center.rules"
 SUDOERS_DST="/etc/sudoers.d/49-amd-linux-control-center"
 ACTION_ID="io.github.cpugod55.amd-linux-control-center.gpu-control"
@@ -31,12 +30,21 @@ remove_policy_if_writable() {
   fi
 }
 
+remove_legacy_policies() {
+  local policy_path
+  shopt -s nullglob
+  for policy_path in /usr/share/polkit-1/actions/com.*.amd-linux-control-center.policy; do
+    remove_policy_if_writable "$policy_path"
+  done
+  shopt -u nullglob
+}
+
 if [[ "$MODE" == "disable" ]]; then
   rm -f "$RULE_DST" "$SUDOERS_DST" "$HELPER_DST"
   # /usr/share is read-only on rpm-ostree hosts. Atomic installs do not use a
   # custom PolicyKit action, so only remove policy files where the directory is writable.
   remove_policy_if_writable "$POLICY_DST"
-  remove_policy_if_writable "$LEGACY_POLICY_DST"
+  remove_legacy_policies
   echo "Passwordless GPU authorization for AMD Linux Control Center removed."
   exit 0
 fi
@@ -66,7 +74,7 @@ if [[ "$ATOMIC_HOST" -eq 1 ]]; then
 else
   rm -f "$SUDOERS_DST"
   install -m 0644 "$POLICY_SRC" "$POLICY_DST"
-  remove_policy_if_writable "$LEGACY_POLICY_DST"
+  remove_legacy_policies
   cat > "$RULE_DST" <<EOF
 polkit.addRule(function(action, subject) {
     if (action.id == "$ACTION_ID" &&
