@@ -2,7 +2,7 @@
 
 AMD Linux Control Center (ALCC) is a capability-driven control and telemetry application for AMD GPUs on Linux. It is designed to expose only the controls supported by the detected hardware and driver rather than assuming a specific GPU model.
 
-> **Current status:** `v0.99.0-rc1` — release candidate for 1.0. Testers are wanted, especially users with AMD GPUs other than the RX 6800 XT.
+> **Current status:** `v0.99.0-rc2` — second release candidate for 1.0. RC2 focuses on hardware feedback, fan-control usability, atomic-host setup, and release polish found during RC1 testing.
 
 ## Live gaming dashboard
 
@@ -57,7 +57,7 @@ Connected-display selection and controls for resolution, refresh rate, VRR/FreeS
 
 ## Tested distributions
 
-The current release candidate has been exercised on:
+The release-candidate series has been exercised on:
 
 - Ubuntu 26.04.1 LTS
 - Bazzite
@@ -74,7 +74,7 @@ Hardware and distro support is capability-driven, so controls can vary by GPU, k
 Download and extract the current release candidate, then run:
 
 ```bash
-cd amd-linux-control-center-0.99.0-rc1
+cd amd-linux-control-center-0.99.0-rc2
 ./install.sh
 ```
 
@@ -90,7 +90,25 @@ To install missing runtime prerequisites automatically on supported mutable dist
 ./install.sh --install-dependencies
 ```
 
-On atomic/rpm-ostree systems such as Bazzite, ALCC does not automatically layer host packages.
+### Bazzite / rpm-ostree systems
+
+ALCC does **not** automatically layer host packages on atomic/rpm-ostree systems. Run the system check first and follow the command it prints for any missing prerequisite.
+
+A common fresh-Bazzite case is missing Python Tkinter. If the system check reports `Tkinter: MISSING`, use:
+
+```bash
+sudo rpm-ostree install python3-tkinter
+systemctl reboot
+```
+
+After the reboot, return to the extracted ALCC folder and run:
+
+```bash
+./install.sh --check-system
+./install.sh
+```
+
+The first command should report `Runtime prerequisites: READY` before you continue with installation. If another prerequisite is missing, use the exact rpm-ostree command shown by the checker and reboot into the new deployment before retrying.
 
 After installation, launch with:
 
@@ -98,7 +116,7 @@ After installation, launch with:
 ~/.local/bin/amd-linux-control-center
 ```
 
-## RC1 testing request
+## RC2 testing request
 
 Please try the application normally before reading detailed documentation. We want feedback on both **functionality** and **usability**.
 
@@ -108,7 +126,7 @@ In particular, report:
 - Desktop environment / display server if relevant
 - Whether installation and GPU detection worked
 - Controls that were unavailable or behaved unexpectedly
-- Profile, telemetry, Steam, Gamescope, FSR, or display issues
+- Profile, fan, telemetry, Steam, Gamescope, FSR, or display issues
 - Anything that was unclear or not intuitive
 - Any control you were hesitant to use because its effect was not obvious
 
@@ -116,7 +134,7 @@ When reporting a problem, include terminal/error output and the steps that led t
 
 ## Release-candidate policy
 
-`v0.99.0-rc1` is feature-frozen. Changes before 1.0 are intended to be limited to confirmed bugs, regressions, compatibility fixes, and justified usability improvements found during RC testing.
+`v0.99.0-rc2` remains feature-frozen for 1.0. Changes are intended to be limited to confirmed bugs, regressions, compatibility fixes, and justified usability improvements found during RC testing.
 
 ## Optional tray support
 
