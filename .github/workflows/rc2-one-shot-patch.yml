@@ -37,6 +37,8 @@ jobs:
       - name: Run test suite
         id: tests
         continue-on-error: true
+        env:
+          PYTHONPATH: app
         run: |
           set -o pipefail
           python -m pytest -q --tb=short 2>&1 | tee .github/rc2-test-output.txt
