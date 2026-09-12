@@ -30,7 +30,7 @@ except Exception:
     ImageDraw=None
 
 APP_NAME = "AMD Linux Control Center"
-VERSION = "0.99.0-rc1"
+VERSION = "0.99.0-rc2"
 ANALYZER_VERSION = "0.81.1"
 SESSION_SCHEMA_VERSION = 3
 MAX_RAW_PAIRED_SAMPLES = 6000
@@ -131,6 +131,7 @@ from alcc_profile_workflows import (
     startup_profile_status_text as profile_workflow_startup_status_text,
     startup_profile_target as profile_workflow_startup_target,
 )
+from alcc_fan_state import fan_preferences, store_fan_preferences
 from alcc_gpu_backend import (
     AMDGPU,
     active_clock,
@@ -652,6 +653,10 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         self.after(1100,self._sync_dpm_ui_from_driver)
         self.protocol("WM_DELETE_WINDOW", self.on_window_close)
         self.after(1600,self._apply_startup_profile_if_configured)
+        # Restore a previously active custom curve only after startup profile work
+        # has had a chance to settle.  Silent restore is limited to sessions where
+        # the narrowly scoped helper is already authorized without a prompt.
+        self.after(2300,self._restore_saved_fan_curve_if_requested)
         self.after(700,self._start_tray_if_available)
         if self.app_settings.get("start_minimized",False):
             self.after(900,self.hide_to_tray)
@@ -1196,7 +1201,13 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
                                   font=("Sans",9,"bold"))
         self.power_state.pack(side="left",padx=(14,0))
 
-        tk.Label(b,text="Changes require administrator authentication when the kernel exposes the control as root-only. Values are constrained to the limits reported by the driver.",bg=PANEL,fg=MUTED,justify="left",wraplength=1000).pack(anchor="w",pady=(6,0))
+        tk.Label(
+            b,
+            text="Changes require administrator authentication when the kernel exposes the control as root-only. "
+                 "Values are constrained to the limits reported by the driver. The board power limit is an AMDGPU "
+                 "driver/firmware target; individual telemetry samples can still differ from that target.",
+            bg=PANEL,fg=MUTED,justify="left",wraplength=1000
+        ).pack(anchor="w",pady=(6,0))
 
     def _build_advanced_performance(self):
         t=self.tabs["Advanced Performance"]
@@ -1264,7 +1275,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         tk.Label(drow2,text="Memory DPM state",bg="#0b1119",fg=FG,width=24,anchor="w").pack(side="left")
         self.mclk_combo=ttk.Combobox(drow2,state="readonly",width=26)
         self.mclk_combo.pack(side="left",padx=6)
-        self.mclk_apply=ttk.Button(drow2,text="Lock Memory DPM State",command=self.apply_mclk_state)
+        self.mclk_apply=ttk.Button(drow2,text="Request Memory DPM State",command=self.apply_mclk_state)
         self.mclk_apply.pack(side="left",padx=6)
         self.mclk_status=tk.Label(drow2,text="—",bg="#0b1119",fg=MUTED)
         self.mclk_status.pack(side="left",padx=10)
@@ -1720,7 +1731,28 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         p.pack(fill="x",padx=10,pady=10)
 
         self.fan_mode_label=tk.Label(b,text="Current mode: detecting…",bg=PANEL,fg=BLUE2,font=("Sans",11,"bold"))
-        self.fan_mode_label.pack(anchor="w",pady=(2,10))
+        self.fan_mode_label.pack(anchor="w",pady=(2,8))
+
+        # Keep the thermal information needed for fan tuning on the same page.
+        sensor_grid=tk.Frame(b,bg=PANEL)
+        sensor_grid.pack(fill="x",pady=(0,10))
+        self.fan_sensor_cards={}
+        for column,(key,title) in enumerate((
+            ("edge","EDGE"),
+            ("junction","JUNCTION"),
+            ("memory","MEMORY"),
+            ("delta","JUNCTION − EDGE"),
+            ("fan","FAN"),
+        )):
+            sensor_grid.grid_columnconfigure(column,weight=1,uniform="fan-sensors")
+            card=tk.Frame(sensor_grid,bg="#070a0f",highlightthickness=1,highlightbackground=BORDER)
+            card.grid(row=0,column=column,sticky="nsew",padx=3)
+            tk.Label(card,text=title,bg="#070a0f",fg=MUTED,font=("Sans",8,"bold")).pack(
+                anchor="w",padx=8,pady=(6,1)
+            )
+            value=tk.Label(card,text="—",bg="#070a0f",fg=FG,font=("Sans",11,"bold"),anchor="w")
+            value.pack(anchor="w",padx=8,pady=(0,6))
+            self.fan_sensor_cards[key]=(card,value)
 
         row=tk.Frame(b,bg=PANEL); row.pack(fill="x",pady=5)
         tk.Label(row,text="Manual fan speed",bg=PANEL,fg=FG,width=22,anchor="w").pack(side="left")
@@ -1745,7 +1777,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         tk.Label(body,text="Uses GPU junction/hotspot temperature when available, otherwise edge temperature. Starting the curve requests administrator access once; the helper returns the GPU to AMD automatic fan control when stopped or when this app closes.",
                  bg=PANEL,fg=MUTED,justify="left",wraplength=1000).pack(anchor="w",pady=(3,10))
 
-        self.curve_points=[(40,25),(55,35),(70,50),(85,70),(100,100)]
+        self.curve_points,self._saved_fan_mode=fan_preferences(self.app_settings)
         self.curve_vars=[]
         controls=tk.Frame(body,bg=PANEL); controls.pack(fill="x")
         for temp,pct in self.curve_points:
@@ -1757,7 +1789,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
                           command=self.draw_curve)
             sp.pack()
             tk.Label(col,text="fan %",bg=PANEL,fg=MUTED,font=("Sans",8)).pack()
-            v.trace_add("write",lambda *a:self.draw_curve())
+            v.trace_add("write",lambda *a:self._fan_curve_changed())
 
         action=tk.Frame(body,bg=PANEL); action.pack(fill="x",pady=(8,0))
         self.curve_start_btn=ttk.Button(action,text="Start Custom Curve",command=self.start_fan_curve)
@@ -1770,6 +1802,39 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         self.curve_canvas=tk.Canvas(body,height=250,bg="#070a0f",highlightbackground=BORDER,highlightthickness=1)
         self.curve_canvas.pack(fill="both",expand=True,pady=(12,0))
         self.curve_canvas.bind("<Configure>",lambda e:self.draw_curve())
+
+    def _save_fan_preferences(self, mode=None):
+        """Persist the five curve points and the requested startup fan mode."""
+        if not isinstance(getattr(self, "app_settings", None), dict):
+            return
+        current_mode = mode or self.app_settings.get("fan_curve_mode", "automatic")
+        points = self._curve_points_now() if hasattr(self, "curve_vars") else self.curve_points
+        store_fan_preferences(self.app_settings, points, current_mode)
+        self._saved_fan_mode = self.app_settings.get("fan_curve_mode", "automatic")
+        save_app_settings(self.app_settings)
+
+    def _fan_curve_changed(self):
+        self.draw_curve()
+        self._save_fan_preferences()
+
+    def _restore_saved_fan_curve_if_requested(self):
+        """Restore a saved active curve without creating a surprise auth prompt."""
+        if not self.gpu or not hasattr(self, "curve_runtime") or self._curve_is_running():
+            return
+        points, mode = fan_preferences(self.app_settings)
+        if mode != "curve":
+            return
+        curve_map = {temp: percent for temp, percent in points}
+        for temp, var in self.curve_vars:
+            if temp in curve_map:
+                var.set(curve_map[temp])
+        if not passwordless_gpu_authorization_active():
+            self.curve_runtime.configure(
+                text="Saved curve ready — click Start Custom Curve (authorization required)",
+                fg=YELLOW,
+            )
+            return
+        self.start_fan_curve(confirm=False)
 
     def _fan_slider_label(self):
         try:self.fan_pct_label.configure(text=f"{self.fan_var.get():.0f}%")
@@ -1820,7 +1885,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
             last=pct
         return clean
 
-    def start_fan_curve(self):
+    def start_fan_curve(self, confirm=True):
         if not self.gpu:
             return
         fc=self.gpu.fan_control()
@@ -1831,13 +1896,10 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
             messagebox.showinfo("Fan curve","The custom fan curve is already running.")
             return
         pts=self._curve_points_now()
-        if not shutil.which("pkexec"):
-            messagebox.showerror("Administrator access unavailable","pkexec was not found. The custom curve needs one privileged helper process.")
-            return
         if not os.path.exists(PROFILE_APPLY_HELPER):
             messagebox.showerror("Missing helper","The hardened AMD Linux Control Center GPU helper was not installed.")
             return
-        if not messagebox.askyesno(
+        if confirm and not messagebox.askyesno(
             "Start custom fan curve",
             f"Start the custom fan curve on {self.gpu.card_name}?\n\n"
             "The curve will take manual control of the GPU fan and will return it to AMD automatic control when stopped or when this app exits."
@@ -1884,11 +1946,20 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         ])
         try:
             self.curve_proc=subprocess.Popen(cmd)
+            self._save_fan_preferences("curve")
             self.curve_runtime.configure(text="Curve starting…",fg=YELLOW)
             self.after(700,self._poll_curve_process)
         except Exception as e:
             self.curve_proc=None
-            messagebox.showerror("Could not start fan curve",str(e))
+            try:
+                self.gpu.set_fan_auto()
+            except Exception:
+                pass
+            self._save_fan_preferences("automatic")
+            if confirm:
+                messagebox.showerror("Could not start fan curve",str(e))
+            else:
+                self.curve_runtime.configure(text=f"Saved curve restore failed: {e}",fg=RED)
 
     def _poll_curve_process(self):
         if self._curve_is_running():
@@ -1909,6 +1980,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
                 pass
 
     def stop_fan_curve(self):
+        self._save_fan_preferences("automatic")
         if self._curve_is_running():
             self._signal_curve_stop()
             self.curve_runtime.configure(text="Stopping curve…",fg=YELLOW)
@@ -1933,6 +2005,8 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
             return
         try:
             pwm=self.gpu.set_fan_manual_percent(pct)
+            # Manual speed is intentionally not auto-restored on next launch.
+            self._save_fan_preferences("automatic")
             self.status.configure(text=f"● Manual fan {pct:.0f}%",foreground=GREEN)
             self.after(500,self.refresh_fan_status)
         except Exception as e:
@@ -1950,29 +2024,83 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
             return
         try:
             self.gpu.set_fan_auto()
+            self._save_fan_preferences("automatic")
             self.status.configure(text="● Automatic fan control restored",foreground=GREEN)
             self.after(500,self.refresh_fan_status)
         except Exception as e:
             messagebox.showerror("Could not restore automatic fan control",str(e))
 
-    def refresh_fan_status(self):
-        if not self.gpu or not hasattr(self,"fan_mode_label"):return
-        fc=self.gpu.fan_control()
-        if not fc:
-            self.fan_mode_label.configure(text="Fan control: not exposed by this GPU",fg=MUTED)
-            self.fan_scale.configure(state="disabled")
-            self.fan_status.configure(text="")
+    def _refresh_fan_thermal_readout(self, metric):
+        if not hasattr(self, "fan_sensor_cards"):
             return
+        temps = metric.get("temps", {}) if isinstance(metric, dict) else {}
+
+        def find_temp(*aliases):
+            for label, value in temps.items():
+                normalized = str(label).strip().lower()
+                if any(alias == normalized or alias in normalized for alias in aliases):
+                    return value
+            return None
+
+        edge = find_temp("edge")
+        junction = find_temp("junction", "hotspot", "hot spot")
+        memory = find_temp("memory", "mem")
+        delta = junction - edge if junction is not None and edge is not None else None
+        fan_percent = metric.get("fan_percent")
+        fan_rpm = metric.get("fan_rpm")
+
+        values = {
+            "edge": (f"{edge:.1f} °C" if edge is not None else None),
+            "junction": (f"{junction:.1f} °C" if junction is not None else None),
+            "memory": (f"{memory:.1f} °C" if memory is not None else None),
+            "delta": (f"{delta:.1f} °C" if delta is not None else None),
+            "fan": (
+                f"{fan_percent:.0f}%  •  {fan_rpm} RPM"
+                if fan_percent is not None and fan_rpm is not None
+                else f"{fan_percent:.0f}%" if fan_percent is not None
+                else f"{fan_rpm} RPM" if fan_rpm is not None
+                else None
+            ),
+        }
+        for key, (card, label) in self.fan_sensor_cards.items():
+            value = values.get(key)
+            if value is None:
+                card.grid_remove()
+            else:
+                card.grid()
+                label.configure(text=value)
+
+    def refresh_fan_status(self):
+        if not self.gpu or not hasattr(self, "fan_mode_label"):
+            return
+
+        metric = self.gpu.metric()
+        self._refresh_fan_thermal_readout(metric)
+        fc = self.gpu.fan_control()
+        if not fc:
+            self.fan_mode_label.configure(text="Fan control: not exposed by this GPU", fg=MUTED)
+            self.fan_scale.configure(state="disabled")
+            self.fan_status.configure(text="Writable fan control is unavailable; exposed temperature sensors remain live above.")
+            return
+
         self.fan_scale.configure(state="normal")
-        mode={0:"Disabled / full speed",1:"Manual",2:"Automatic"}.get(fc["enable"],f"Mode {fc['enable']}")
-        self.fan_mode_label.configure(text=f"Current mode: {mode}",fg=GREEN if fc["enable"]==2 else YELLOW)
-        pwm=fc["pwm"]
-        lo=fc["pwm_min"] if fc["pwm_min"] is not None else 0
-        hi=fc["pwm_max"] if fc["pwm_max"] is not None else 255
-        pct=((pwm-lo)*100/(hi-lo)) if pwm is not None and hi>lo else None
-        pcttxt=f"{pct:.0f}%" if pct is not None else "—"
-        rpmtxt=f"{fc['rpm']} RPM" if fc["rpm"] is not None else "—"
-        self.fan_status.configure(text=f"Current PWM: {pwm if pwm is not None else '—'} ({pcttxt})     Fan: {rpmtxt}     PWM range: {lo}–{hi}")
+        mode = {0:"Disabled / full speed", 1:"Manual", 2:"Automatic"}.get(
+            fc["enable"], f"Mode {fc['enable']}"
+        )
+        self.fan_mode_label.configure(
+            text=f"Current mode: {mode}",
+            fg=GREEN if fc["enable"] == 2 else YELLOW,
+        )
+        pwm = fc["pwm"]
+        lo = fc["pwm_min"] if fc["pwm_min"] is not None else 0
+        hi = fc["pwm_max"] if fc["pwm_max"] is not None else 255
+        pct = ((pwm-lo)*100/(hi-lo)) if pwm is not None and hi > lo else None
+        pcttxt = f"{pct:.0f}%" if pct is not None else "—"
+        rpmtxt = f"{fc['rpm']} RPM" if fc["rpm"] is not None else "—"
+        self.fan_status.configure(
+            text=f"Current PWM: {pwm if pwm is not None else '—'} ({pcttxt})     "
+                 f"Fan: {rpmtxt}     PWM range: {lo}–{hi}"
+        )
 
     def _build_profiles(self):
         t=self.tabs["Profiles"]
@@ -2020,9 +2148,16 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         tk.Label(top,text="Profile",bg=PANEL,fg=FG,width=12,anchor="w").pack(side="left")
         self.saved_profile_combo=ttk.Combobox(top,state="readonly",width=28)
         self.saved_profile_combo.pack(side="left",padx=6)
+        self.saved_profile_combo.bind("<<ComboboxSelected>>",lambda e:self._update_saved_profile_preview())
         ttk.Button(top,text="Apply Profile",command=self.apply_saved_profile).pack(side="left",padx=6)
         ttk.Button(top,text="Delete",command=self.delete_saved_profile).pack(side="left",padx=6)
         ttk.Button(top,text="Copy Summary",command=self.copy_saved_profile_summary).pack(side="left",padx=6)
+
+        self.saved_profile_preview=tk.Label(
+            b,text="Select a saved profile to preview its changes.",bg=PANEL,fg=MUTED,
+            justify="left",anchor="w",wraplength=1000
+        )
+        self.saved_profile_preview.pack(fill="x",pady=(0,10))
 
         create=tk.Frame(b,bg=PANEL); create.pack(fill="x",pady=(0,12))
         tk.Label(create,text="Save current as",bg=PANEL,fg=FG,width=12,anchor="w").pack(side="left")
@@ -2036,6 +2171,40 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         self.profile_summary_view=ReadOnlyTextView(self.profile_summary,self)
 
         self.refresh_saved_profiles()
+        self._update_saved_profile_preview()
+
+    def _saved_profile_preview_text(self, data):
+        if not isinstance(data, dict):
+            return "Select a saved profile to preview its changes."
+        changes=[]
+        perf=data.get("performance_level")
+        if perf:
+            changes.append(f"Driver performance: {perf}")
+        if data.get("power_profile_index") is not None:
+            changes.append(f"Workload profile index: {data.get('power_profile_index')}")
+        if data.get("power_cap_w") is not None:
+            changes.append(f"Power-cap target: {float(data.get('power_cap_w')):.0f} W")
+        dpm_mode=data.get("dpm_mode","auto")
+        requests=data.get("dpm_requests",{}) if isinstance(data.get("dpm_requests",{}),dict) else {}
+        if dpm_mode=="manual" and requests:
+            domains=", ".join(sorted(str(name).replace("pp_dpm_","").upper() for name in requests))
+            changes.append(f"DPM request: manual ({domains})")
+        else:
+            changes.append(f"DPM mode: {dpm_mode}")
+        fan_mode=data.get("fan_mode")
+        if fan_mode=="curve":
+            curve=", ".join(f"{int(t)}°:{int(p)}%" for t,p in data.get("fan_curve",[]))
+            changes.append("Fan: custom curve" + (f" ({curve})" if curve else ""))
+        elif fan_mode=="automatic":
+            changes.append("Fan: AMD automatic")
+        return "This profile will change:  " + "   •   ".join(changes)
+
+    def _update_saved_profile_preview(self):
+        if not hasattr(self,"saved_profile_preview"):
+            return
+        name=self.saved_profile_combo.get().strip() if hasattr(self,"saved_profile_combo") else ""
+        data=self.profile_data.get("profiles",{}).get(name)
+        self.saved_profile_preview.configure(text=self._saved_profile_preview_text(data))
 
     def _current_profile_snapshot(self):
         if not self.gpu:
@@ -2269,7 +2438,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
             if dpm_mode=="manual" and isinstance(v,dict) and v.get("mhz") is not None
         }
 
-    def _apply_complete_profile_once(self,dpm_mode,dpm_requests,pidx,cap,curve=None):
+    def _apply_complete_profile_once(self,dpm_mode,dpm_requests,pidx,cap,curve=None,fan_mode=None):
         """Apply a saved profile using the single approved privileged helper path."""
         if not os.path.exists(PROFILE_APPLY_HELPER):
             raise RuntimeError("profile_apply_helper.py was not installed.")
@@ -2301,7 +2470,13 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
                 except Exception: continue
                 helper_args += ["--dpm-target",f"{path}={target}"]
 
-        # Fan curve can remain in the same privileged helper process.
+        # Fan state remains in the same privileged helper transaction.
+        if not curve and fan_mode=="automatic":
+            fc=self.gpu.fan_control()
+            if fc and fc.get("enable_path"):
+                helper_args += ["--set",f"{fc['enable_path']}=2"]
+
+        # A custom curve keeps the helper process alive after the one-time writes.
         if curve:
             fc=self.gpu.fan_control()
             if not fc:
@@ -2391,7 +2566,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         # to the verified two-stage path below. That path re-reads AMDGPU after
         # switching Auto/Manual so changing state tables cannot invalidate a saved target.
         self._apply_complete_profile_once(
-            dpm_mode,dpm_requests,pidx,cap,clean_curve if run_curve else None
+            dpm_mode,dpm_requests,pidx,cap,clean_curve if run_curve else None,data.get("fan_mode")
         )
 
         if curve and hasattr(self,"curve_vars"):
@@ -2400,6 +2575,9 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
                 if temp in curve_map:
                     var.set(curve_map[temp])
             self.draw_curve()
+
+        if data.get("fan_mode") in ("curve","automatic"):
+            self._save_fan_preferences("curve" if run_curve else "automatic")
 
         self.populate_static()
         if hasattr(self,"dpm_domain_text"):
@@ -2416,6 +2594,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         if not messagebox.askyesno(
             "Apply saved profile",
             f"Apply '{name}' to {self.gpu.card_name if self.gpu else 'the selected GPU'}?\n\n"
+            f"{self._saved_profile_preview_text(data)}\n\n"
             "This may request administrator authentication for the supported GPU settings."
         ):
             return
