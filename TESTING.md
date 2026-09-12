@@ -2,7 +2,7 @@
 
 Thank you for testing AMD Linux Control Center.
 
-The current public test build is **v0.99.0-rc1**, the release candidate for 1.0.
+The current test build is **v0.99.0-rc2**, the second release candidate for 1.0.
 
 ## What we want to learn
 
@@ -25,6 +25,16 @@ Please use the app normally before studying documentation. If something is confu
 - Close and reopen ALCC and confirm saved settings/profiles behave as expected.
 - If you use Steam, try game discovery/profile automation.
 - If your system supports Gamescope/FSR integration, test that path as well.
+
+## RC2-specific checks
+
+- On the Fan Control page, confirm exposed edge/junction/memory temperatures and fan information update live.
+- Change the five custom fan-curve points, close/reopen ALCC, and confirm the values persist.
+- If Custom Curve was active before closing ALCC, confirm it restores on startup when passwordless GPU authorization is already available. If authorization would be required, ALCC should leave the saved curve ready rather than create a surprise prompt.
+- Stop the custom curve and confirm **AMD Automatic** remains the saved startup state after reopening ALCC.
+- Select saved GPU profiles and confirm the preview accurately describes the settings that will be changed before Apply.
+- On Navi 31/RDNA 3, report power-limit write/readback behavior and DPM-state behavior without assuming a requested DPM state is an absolute instantaneous clock lock.
+- On Bazzite/rpm-ostree, if Tkinter is missing, confirm the system checker provides the layering/reboot/recheck steps and does not automatically modify the atomic host.
 
 ## Please report your environment
 
@@ -62,4 +72,4 @@ Do not include passwords, tokens, account credentials, or other private informat
 
 ## RC policy
 
-RC1 is feature-frozen. Before 1.0, changes are intended to be limited to confirmed bugs, regressions, compatibility fixes, and usability problems demonstrated by testing.
+RC2 remains feature-frozen for 1.0. Before 1.0, changes are intended to be limited to confirmed bugs, regressions, compatibility fixes, and justified usability problems demonstrated by testing.
