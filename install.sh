@@ -20,7 +20,7 @@ if [[ "$ENABLE_PASSWORDLESS" -eq 1 && "$DISABLE_PASSWORDLESS" -eq 1 ]]; then
   exit 2
 fi
 
-VERSION="0.99.0-rc1"
+VERSION="0.99.0-rc2"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYSTEM_CHECK="$ROOT_DIR/system-check.sh"
 
@@ -65,7 +65,8 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 CONFIG_DIR="$HOME/.config/amd-linux-control-center"
 AUTH_PREF_FILE="$CONFIG_DIR/installer.conf"
 SYSTEM_HELPER="/usr/local/libexec/amd-linux-control-center-profile-helper"
-SYSTEM_POLICY="/usr/share/polkit-1/actions/com.openai.amd-linux-control-center.policy"
+SYSTEM_POLICY="/usr/share/polkit-1/actions/io.github.cpugod55.amd-linux-control-center.policy"
+LEGACY_SYSTEM_POLICY="/usr/share/polkit-1/actions/com.openai.amd-linux-control-center.policy"
 SYSTEM_RULE="/etc/polkit-1/rules.d/49-amd-linux-control-center.rules"
 SYSTEM_SUDOERS="/etc/sudoers.d/49-amd-linux-control-center"
 
@@ -128,6 +129,16 @@ AUTH_PREF="$(read_auth_preference 2>/dev/null || true)"
 AUTH_ACTIVE=0
 if passwordless_authorization_active; then AUTH_ACTIVE=1; fi
 
+# RC1 used an unrelated development namespace for the PolicyKit action.
+# If that legacy policy is present on a mutable host, reinstall the authorization
+# metadata once so upgrades move cleanly to the project-owned namespace.
+if [[ "$AUTH_ACTIVE" -eq 1 && -e "$LEGACY_SYSTEM_POLICY" ]] && ! is_atomic_host; then
+  echo
+  echo "Migrating legacy GPU authorization metadata to the AMD Linux Control Center namespace..."
+  apply_passwordless_authorization enable
+  AUTH_ACTIVE=1
+fi
+
 if [[ "$ENABLE_PASSWORDLESS" -eq 1 ]]; then
   echo
   if [[ "$AUTH_ACTIVE" -eq 1 ]]; then
@@ -140,7 +151,7 @@ if [[ "$ENABLE_PASSWORDLESS" -eq 1 ]]; then
 elif [[ "$DISABLE_PASSWORDLESS" -eq 1 ]]; then
   echo
   echo "Disabling passwordless GPU authorization for AMD GPU control..."
-  if [[ "$AUTH_ACTIVE" -eq 1 || -e "$SYSTEM_HELPER" || -e "$SYSTEM_POLICY" || -e "$SYSTEM_RULE" || -e "$SYSTEM_SUDOERS" ]]; then
+  if [[ "$AUTH_ACTIVE" -eq 1 || -e "$SYSTEM_HELPER" || -e "$SYSTEM_POLICY" || -e "$LEGACY_SYSTEM_POLICY" || -e "$SYSTEM_RULE" || -e "$SYSTEM_SUDOERS" ]]; then
     apply_passwordless_authorization disable
   else
     echo "Passwordless GPU authorization: already disabled."
