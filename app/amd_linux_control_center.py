@@ -1266,7 +1266,7 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         tk.Label(drow1,text="GPU DPM state",bg="#0b1119",fg=FG,width=24,anchor="w").pack(side="left")
         self.sclk_combo=ttk.Combobox(drow1,state="readonly",width=26)
         self.sclk_combo.pack(side="left",padx=6)
-        self.sclk_apply=ttk.Button(drow1,text="Lock GPU DPM State",command=self.apply_sclk_state)
+        self.sclk_apply=ttk.Button(drow1,text="Request GPU DPM State",command=self.apply_sclk_state)
         self.sclk_apply.pack(side="left",padx=6)
         self.sclk_status=tk.Label(drow1,text="—",bg="#0b1119",fg=MUTED)
         self.sclk_status.pack(side="left",padx=10)
@@ -1284,14 +1284,14 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         tk.Label(drow_pcie,text="PCIe DPM state",bg="#0b1119",fg=FG,width=24,anchor="w").pack(side="left")
         self.pcie_combo=ttk.Combobox(drow_pcie,state="readonly",width=34)
         self.pcie_combo.pack(side="left",padx=6)
-        self.pcie_apply=ttk.Button(drow_pcie,text="Lock PCIe DPM State",command=self.apply_pcie_state)
+        self.pcie_apply=ttk.Button(drow_pcie,text="Request PCIe DPM State",command=self.apply_pcie_state)
         self.pcie_apply.pack(side="left",padx=6)
         self.pcie_status=tk.Label(drow_pcie,text="—",bg="#0b1119",fg=MUTED)
         self.pcie_status.pack(side="left",padx=10)
 
         drow3=tk.Frame(self.advanced_dpm_frame,bg="#0b1119"); drow3.pack(fill="x",padx=10,pady=(5,9))
         ttk.Button(drow3,text="Restore Default / Auto",command=self.reset_dpm_auto).pack(side="left")
-        tk.Label(drow3,text="Advanced only: DPM states are not the same as instantaneous clocks. Locking PCIe can increase idle power. Auto restores normal dynamic selection.",
+        tk.Label(drow3,text="Advanced only: DPM states are driver requests, not guaranteed instantaneous clock locks. Requesting a PCIe state can increase idle power. Auto restores normal dynamic selection.",
                  bg="#0b1119",fg=MUTED,justify="left",wraplength=720).pack(side="left",padx=12)
 
         domains=tk.Frame(overview_tab,bg="#0b1119",highlightthickness=1,highlightbackground=BORDER)
@@ -1968,6 +1968,15 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         else:
             if self.curve_proc is not None:
                 rc=self.curve_proc.poll()
+                if rc not in (0,None):
+                    # The helper restores AMD automatic control in its own cleanup.
+                    # Persist that safe state so a failed curve is not retried at
+                    # every subsequent application launch.
+                    self._save_fan_preferences("automatic")
+                    try:
+                        self.gpu.set_fan_auto()
+                    except Exception:
+                        pass
                 self.curve_runtime.configure(text=f"Curve inactive (exit {rc})" if rc not in (0,None) else "Curve inactive",fg=MUTED)
             self.curve_proc=None
             self.after(500,self.refresh_fan_status)
@@ -2289,6 +2298,8 @@ class App(LiveIntelligenceMixin, RuntimeDetectionMixin, AnalysisLabEngineMixin, 
         elif self.saved_profile_combo.get() not in names:
             self.saved_profile_combo.set(names[0] if names else "")
         self._render_profile_summary()
+        if hasattr(self,"saved_profile_preview"):
+            self._update_saved_profile_preview()
         if hasattr(self,"game_profile_combo"):
             self.refresh_game_profile_ui()
 
@@ -10850,7 +10861,7 @@ StartupWMClass=AMD-Linux-Control-Center
         grid.grid_columnconfigure(0,weight=1); grid.grid_columnconfigure(1,weight=1)
         ttk.Button(grid,text="Reset GPU to AMD Defaults",command=self.reset_gpu_defaults).grid(
             row=0,column=0,sticky="ew",padx=(0,5),pady=5)
-        ttk.Button(grid,text="Clear Manual DPM Locks",command=self.clear_manual_dpm_locks).grid(
+        ttk.Button(grid,text="Clear Manual DPM Requests",command=self.clear_manual_dpm_locks).grid(
             row=0,column=1,sticky="ew",padx=(5,0),pady=5)
         ttk.Button(grid,text="Reset Fan to Automatic",command=self.reset_fan_automatic).grid(
             row=1,column=0,sticky="ew",padx=(0,5),pady=5)
@@ -11502,11 +11513,11 @@ StartupWMClass=AMD-Linux-Control-Center
             messagebox.showerror("Unsupported","The required AMDGPU DPM interfaces are not exposed.")
             return
         if domain=="pcie":
-            confirm_title="Lock PCIe DPM state"
+            confirm_title="Request PCIe DPM state"
             confirm_detail=f"Lock PCIe to state {key}?\n\nThis can increase idle power consumption."
         else:
-            confirm_title=f"Lock {label} clock state"
-            confirm_detail=f"Lock {label.lower()} clock to state {key}?"
+            confirm_title=f"Request {label} DPM state"
+            confirm_detail=f"Request {label.lower()} DPM state {key}? The driver may still choose the instantaneous clock."
         if not self._confirm_write(confirm_title,confirm_detail):
             return
         try:
