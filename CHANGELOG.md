@@ -1,3 +1,14 @@
+# v0.99.0-rc2
+
+- Persists custom fan-curve points and the requested Custom Curve / AMD Automatic startup state, with safe automatic fallback if a restored curve cannot start.
+- Adds live fan-page thermal context for driver-exposed edge, junction/hotspot, memory temperature, junction-to-edge delta, fan percentage, and RPM.
+- Makes saved GPU profiles show a concise preview of the settings they will change before Apply; explicit profile fan modes are restored as part of profile application.
+- Improves Bazzite/rpm-ostree prerequisite guidance. Missing Tkinter now leads users through `rpm-ostree install`, reboot, system re-check, and installation without ALCC layering host packages automatically.
+- Moves the privileged GPU PolicyKit action to the project-owned `io.github.cpugod55.amd-linux-control-center` namespace and migrates/removes older ALCC policy metadata on mutable hosts.
+- Clarifies AMDGPU power-limit wording: the configured board power cap is a driver/firmware target, not a guarantee that every telemetry sample remains below the displayed value.
+- Revises advanced DPM wording where applicable so driver state requests are not presented as guaranteed instantaneous clock locks on hardware such as Navi 31.
+- Begins the RC2 maintainability pass by moving fan preference validation/persistence into a small independently tested module rather than adding more state-normalization logic to the main UI file.
+
 # v0.99.0-rc1
 
 - Fixes openSUSE Tumbleweed prerequisite handling: when `pkexec` is missing, the zypper package plan now installs `pkexec` instead of the already-present `polkit` package.
