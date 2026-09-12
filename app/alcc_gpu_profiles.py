@@ -35,6 +35,32 @@ def friendly_power_profile(raw_name):
     return names.get(key,raw.replace("_"," ").title())
 
 
+def _adaptive_power_target(default_power, lo, hi, *, reduction_fraction, fallback_fraction):
+    """Return a useful range-safe adaptive power target, or ``None``.
+
+    When the driver exposes a default board-power target, derive the requested
+    reduction from that default rather than from the total writable range. This
+    keeps Efficient/Quiet presets meaningful on GPUs whose writable range is
+    broad above the default but very narrow below it.
+
+    If firmware exposes less than a meaningful reduction below default, return
+    ``None`` instead of pretending a 0-2 W change is an efficiency feature.
+    """
+    lo=float(lo); hi=float(hi)
+    if hi < lo:
+        lo,hi=hi,lo
+
+    if default_power is None:
+        return lo+(hi-lo)*float(fallback_fraction)
+
+    base=max(lo,min(hi,float(default_power)))
+    target=max(lo,min(hi,base*(1.0-float(reduction_fraction))))
+    minimum_meaningful_reduction=max(2.0,base*0.01)
+    if (base-target) < minimum_meaningful_reduction:
+        return None
+    return target
+
+
 def builtin_profile_plan(gpu, name, *, path_exists=os.path.exists):
     """Return ``(write_pairs, description, expected_state)`` for *name*.
 
@@ -120,15 +146,21 @@ def builtin_profile_plan(gpu, name, *, path_exists=os.path.exists):
         add_profile(("POWER_SAVING","BOOTUP_DEFAULT"))
         if lim:
             _,lo,hi=lim
-            target=(default_power-(hi-lo)*0.10) if default_power is not None else (lo+(hi-lo)*0.35)
-            add_power(target,"adaptive")
+            target=_adaptive_power_target(default_power,lo,hi,reduction_fraction=0.10,fallback_fraction=0.35)
+            if target is None:
+                notes.append("Power: driver range leaves no meaningful reduction below default; power target unchanged.")
+            else:
+                add_power(target,"adaptive quiet target")
     elif name=="efficient":
         add_perf("auto")
         add_profile(("3D_FULL_SCREEN","POWER_SAVING","BOOTUP_DEFAULT"))
         if lim:
             _,lo,hi=lim
-            target=(default_power-(hi-lo)*0.05) if default_power is not None else (lo+(hi-lo)*0.60)
-            add_power(target,"adaptive")
+            target=_adaptive_power_target(default_power,lo,hi,reduction_fraction=0.05,fallback_fraction=0.60)
+            if target is None:
+                notes.append("Power: driver range leaves no meaningful reduction below default; power target unchanged.")
+            else:
+                add_power(target,"adaptive efficiency target")
     else:
         return None
 
