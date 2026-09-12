@@ -50,7 +50,15 @@ for vendor in "$DRM_ROOT"/card*/device/vendor; do
   fi
 done
 
-admin_prefix() { if have pkexec; then printf 'pkexec'; elif have sudo; then printf 'sudo'; else printf ''; fi; }
+admin_prefix() {
+  if have pkexec; then
+    printf 'pkexec'
+  elif have sudo; then
+    printf 'sudo'
+  else
+    printf ''
+  fi
+}
 
 pkg_command() {
   local admin
@@ -94,6 +102,21 @@ pkg_command() {
   esac
 }
 
+print_atomic_next_steps() {
+  local cmd="$1"
+  echo
+  echo '  Atomic host action required:'
+  echo '    ALCC will not layer host packages automatically.'
+  if [[ -n "$cmd" ]]; then
+    echo "    1. Run: $cmd"
+    echo '    2. Reboot so the new deployment becomes active: systemctl reboot'
+    echo '    3. After reboot, return to the extracted ALCC folder and run: ./install.sh --check-system'
+    echo '    4. When the check reports READY, run: ./install.sh'
+  else
+    echo '    Install the missing prerequisite using your atomic host package workflow, reboot, then re-run ./install.sh --check-system.'
+  fi
+}
+
 printf 'AMD Linux Control Center system check\n'
 printf '  Distribution: %s\n' "$OS_NAME"
 printf '  Package family: %s\n' "$FAMILY"
@@ -119,10 +142,14 @@ else
   echo '  No automatic package plan is available for this distribution.'
 fi
 
+if [[ "$FAMILY" == "rpm-ostree" ]]; then
+  print_atomic_next_steps "$cmd"
+fi
+
 if [[ "$MODE" == "install" ]]; then
   if [[ "$FAMILY" == "rpm-ostree" ]]; then
     echo 'Refusing automatic package layering on an rpm-ostree/atomic host.' >&2
-    echo 'Use the suggested rpm-ostree command manually only if required; it creates a new deployment and requires a reboot.' >&2
+    echo 'Follow the atomic-host steps shown above. Layering creates a new deployment and requires a reboot.' >&2
     exit 3
   fi
   if [[ -z "$cmd" ]]; then
