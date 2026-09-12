@@ -73,3 +73,25 @@ def test_apt_missing_pkexec_keeps_policykit1_package_mapping():
     assert 'Package family: apt' in proc.stdout
     assert 'Missing prerequisites: pkexec' in proc.stdout
     assert 'sudo apt-get install -y policykit-1' in proc.stdout
+
+
+def test_bazzite_missing_tkinter_explains_layer_reboot_and_recheck():
+    proc = _run(
+        'ID=bazzite\nID_LIKE="fedora"\nPRETTY_NAME="Bazzite"\n',
+        {
+            # Command exists, but importing tkinter fails.
+            'python3': 'exit 1',
+            'rpm-ostree': 'exit 0',
+            'pkexec': 'exit 0',
+            'sudo': 'exit 0',
+        },
+    )
+    assert proc.returncode == 2
+    assert 'Package family: rpm-ostree' in proc.stdout
+    assert 'Tkinter: MISSING' in proc.stdout
+    assert 'Missing prerequisites: tkinter' in proc.stdout
+    assert 'sudo rpm-ostree install python3-tkinter' in proc.stdout
+    assert 'ALCC will not layer host packages automatically' in proc.stdout
+    assert 'systemctl reboot' in proc.stdout
+    assert './install.sh --check-system' in proc.stdout
+    assert './install.sh' in proc.stdout
