@@ -48,10 +48,24 @@ class GpuProfileBackendTests(unittest.TestCase):
         self.assertTrue(any(v=='264000000' for _p,v in pairs))
         self.assertIn('Power: driver default 264 W',desc)
 
-    def test_quiet_power_is_range_derived(self):
-        _pairs,_desc,expected=builtin_profile_plan(self.gpu,'quiet')
-        self.assertAlmostEqual(expected['power'],260.3)
+    def test_quiet_power_is_default_derived_and_range_safe(self):
+        _pairs,desc,expected=builtin_profile_plan(self.gpu,'quiet')
+        self.assertAlmostEqual(expected['power'],237.6)
         self.assertEqual(expected['profile'],'POWER_SAVING')
+        self.assertIn('Power: adaptive quiet target 238 W',desc)
+
+    def test_efficient_power_is_meaningful_default_derived_reduction(self):
+        _pairs,desc,expected=builtin_profile_plan(self.gpu,'efficient')
+        self.assertAlmostEqual(expected['power'],250.8)
+        self.assertEqual(expected['profile'],'3D_FULL_SCREEN')
+        self.assertIn('Power: adaptive efficiency target 251 W',desc)
+
+    def test_narrow_below_default_range_does_not_pretend_one_watt_is_adaptive(self):
+        gpu=FakeGpu(self.td.name,default=264.0,current=264.0,lo=263.0,hi=281.0)
+        pairs,desc,expected=builtin_profile_plan(gpu,'efficient')
+        self.assertNotIn('power',expected)
+        self.assertFalse(any(path.endswith('power1_cap') for path,_value in pairs))
+        self.assertIn('Power: driver range leaves no meaningful reduction below default; power target unchanged.',desc)
 
     def test_active_profile(self):
         self.assertEqual(active_power_profile_raw(self.gpu),'3D_FULL_SCREEN')
