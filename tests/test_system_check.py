@@ -1,5 +1,6 @@
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -20,13 +21,22 @@ def _run(os_release, commands):
         etc.write_text(os_release)
         bindir = td / "bin"
         bindir.mkdir()
-        # bash needs common utilities because the script intentionally runs in a normal shell environment.
+
+        # Keep command discovery isolated from the host. Tests should see only
+        # the package/runtime commands explicitly supplied, plus the utilities
+        # system-check.sh itself needs to launch and inspect DRM vendor files.
         for name in commands:
             _exe(bindir / name, commands[name])
+
+        for name in ("bash", "cat"):
+            real = shutil.which(name)
+            if real:
+                (bindir / name).symlink_to(real)
+
         env = os.environ.copy()
         env["ALCC_OS_RELEASE_PATH"] = str(etc)
         env["ALCC_DRM_ROOT"] = str(td / "drm")
-        env["PATH"] = str(bindir) + ":/usr/bin:/bin"
+        env["PATH"] = str(bindir)
         return subprocess.run([str(SCRIPT), "check"], text=True, capture_output=True, env=env)
 
 
