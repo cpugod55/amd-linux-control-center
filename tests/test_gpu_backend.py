@@ -219,3 +219,28 @@ def test_atomic_system_helper_detection_does_not_depend_on_realpath(monkeypatch)
     monkeypatch.setattr(backend.shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None)
     cmd = backend.privileged_helper_command(["--set", "/sys/example=auto"])
     assert cmd == ["sudo", "-n", backend.PROFILE_APPLY_HELPER_SYSTEM, "--set", "/sys/example=auto"]
+
+def test_capability_probe_falls_back_to_power1_input():
+    import pathlib
+    import shutil
+    import tempfile
+
+    root = pathlib.Path(tempfile.mkdtemp())
+    try:
+        card = root / "card1"
+        hwmon = card / "device" / "hwmon" / "hwmon0"
+        hwmon.mkdir(parents=True)
+
+        # Older AMDGPU hardware such as the tested Lexa PRO exposes live
+        # board power as power1_input rather than power1_average.
+        (hwmon / "power1_input").write_text("4117000")
+
+        gpu = AMDGPU(str(card))
+        rows = gpu.capability_snapshot()
+        power = next(row for row in rows if row["name"] == "GPU power")
+
+        assert power["exists"] is True
+        assert power["readable"] is True
+        assert power["path"].endswith("power1_input")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

@@ -547,7 +547,7 @@ class AMDGPU:
             rows += [
                 cap("GPU temperature",os.path.join(hm,"temp1_input")),
                 cap("GPU voltage",os.path.join(hm,"in0_input")),
-                cap("GPU power",os.path.join(hm,"power1_average")),
+                cap("GPU power",os.path.join(hm,"power1_average") if os.path.exists(os.path.join(hm,"power1_average")) else os.path.join(hm,"power1_input")),
                 cap("Power limit",os.path.join(hm,"power1_cap"),"control"),
                 cap("Power limit minimum",os.path.join(hm,"power1_cap_min")),
                 cap("Power limit maximum",os.path.join(hm,"power1_cap_max")),
