@@ -150,6 +150,19 @@ class RuntimeDetectionExtractionTests(unittest.TestCase):
         self.assertEqual(found['game']['display_name'],'WowB')
         self.assertEqual(found['pid'],200)
 
+    def test_wow_outranks_tabtip_wine_system_helper(self):
+        app=Dummy()
+        base={'exe':'/opt/GE-Proton/files/lib/wine/i386-unix/wine64-preloader','cgroup':'0::/app-net.lutris.Lutris@x.service','steam_appids':[]}
+        snapshot={
+            150:{**base,'pid':150,'ppid':100,'comm':'tabtip.exe','cmdline':r'C:\\windows\\system32\\tabtip.exe','cwd':'/mnt/games/battlenet/drive_c/windows/system32'},
+            200:{**base,'pid':200,'ppid':100,'comm':'WowB.exe','cmdline':r'C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe -launcherlogin -uid wow_classic_beta','cwd':'/mnt/games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_'},
+        }
+        found=app._detect_runtime_game(snapshot=snapshot,games=[])
+        self.assertIsNotNone(found)
+        self.assertEqual(found['game']['display_name'],'WowB')
+        self.assertEqual(found['pid'],200)
+        self.assertIsNone(RuntimeDetectionMixin._runtime_nonsteam_game_record(snapshot[150]))
+
     def test_runtime_snapshot_refresh_is_nonblocking_and_cached(self):
         app=Dummy(); app._runtime_nonblocking_enabled=True; started=threading.Event(); release=threading.Event()
         snapshot={77:{'pid':77,'cmdline':'valheim.x86_64','comm':'valheim.x86_64','exe':'/games/Valheim/valheim.x86_64','steam_appids':['892970']}}
