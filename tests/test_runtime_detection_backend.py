@@ -137,6 +137,19 @@ class RuntimeDetectionExtractionTests(unittest.TestCase):
         self.assertIsNotNone(b)
         self.assertNotEqual(a['game_id'],b['game_id'])
 
+    def test_stale_umu_signature_does_not_mask_wow_process(self):
+        app=Dummy()
+        umu={'game_id':'manual:umu','provider':'manual','display_name':'umu','runtime_signatures':[]}
+        app.game_profile_data['game_runtime_signatures']={'manual:umu':[{'kind':'process_name','value':'umu'}]}
+        snapshot={
+            100:{'pid':100,'ppid':1,'comm':'umu','exe':'/usr/bin/umu','cmdline':'umu-run battlenet','cwd':'/mnt/games','cgroup':'0::/app-net.lutris.Lutris@x.service','steam_appids':[]},
+            200:{'pid':200,'ppid':100,'comm':'WowB.exe','exe':'/opt/GE-Proton/files/lib/wine/i386-unix/wine64-preloader','cmdline':r'C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe -launcherlogin','cwd':'/mnt/games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_','cgroup':'0::/app-net.lutris.Lutris@x.service','steam_appids':[]},
+        }
+        found=app._detect_runtime_game(snapshot=snapshot,games=[umu])
+        self.assertIsNotNone(found)
+        self.assertEqual(found['game']['display_name'],'WowB')
+        self.assertEqual(found['pid'],200)
+
     def test_runtime_snapshot_refresh_is_nonblocking_and_cached(self):
         app=Dummy(); app._runtime_nonblocking_enabled=True; started=threading.Event(); release=threading.Event()
         snapshot={77:{'pid':77,'cmdline':'valheim.x86_64','comm':'valheim.x86_64','exe':'/games/Valheim/valheim.x86_64','steam_appids':['892970']}}
