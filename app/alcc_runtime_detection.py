@@ -12,7 +12,7 @@ import shlex
 import threading
 import time
 
-from alcc_game_discovery import normalized_game_record
+from alcc_game_discovery import normalized_game_record, stable_game_id
 
 
 class RuntimeDetectionMixin:
@@ -157,7 +157,11 @@ class RuntimeDetectionMixin:
                             compat=re.match(br"STEAM_COMPAT_DATA_PATH=.*compatdata/([0-9]+)(?:/)?$",item,re.I)
                             if compat:steam_ids.append(compat.group(1).decode("ascii"))
                     except (OSError,PermissionError):pass
-                    result[int(entry.name)]={"pid":int(entry.name),"cmdline":cmd,"comm":comm,"exe":exe,"ppid":ppid,"steam_appids":sorted(set(steam_ids))}
+                    try:cwd=os.readlink(os.path.join(entry.path,"cwd"))
+                    except OSError:cwd=""
+                    try:cgroup=pathlib.Path(entry.path,"cgroup").read_text(errors="ignore").strip()
+                    except (OSError,PermissionError):cgroup=""
+                    result[int(entry.name)]={"pid":int(entry.name),"cmdline":cmd,"comm":comm,"exe":exe,"ppid":ppid,"cwd":cwd,"cgroup":cgroup,"steam_appids":sorted(set(steam_ids))}
                 except (OSError,PermissionError,ValueError):continue
         return result
 
@@ -228,6 +232,42 @@ class RuntimeDetectionMixin:
             if signature.get("command_contains") and basename==cls._runtime_basename(signature["command_contains"]).casefold() and field=="cmdline token":return {"field":field,"value":value}
         return None
 
+    @classmethod
+    def _runtime_nonsteam_game_record(cls,proc):
+        """Build a conservative runtime identity for a non-Steam Wine/Proton game.
+
+        This intentionally requires evidence from the actual Windows process rather
+        than treating every Wine child as a game.  It supports launchers such as
+        Lutris/UMU without scanning arbitrary library paths.
+        """
+        if not isinstance(proc,dict) or cls._runtime_process_steam_ids(proc):return None
+        comm=cls._runtime_basename(proc.get("comm")).strip()
+        if not comm.casefold().endswith(".exe") or cls._generic_runtime_helper(comm):return None
+        launcher_names={
+            "battle.net launcher.exe","agent.exe","epicgameslauncher.exe",
+            "eadesktop.exe","ealauncher.exe","ubisoftconnect.exe","upc.exe",
+            "uplaywebcore.exe","galaxyclient.exe","galaxyclientservice.exe",
+        }
+        if comm.casefold() in launcher_names:return None
+        tokens=cls._runtime_command_tokens(proc.get("cmdline"))
+        windows=next((token for token in tokens if token.casefold().endswith(".exe") and cls._runtime_basename(token).casefold()==comm.casefold()),None)
+        if not windows:return None
+        exe=str(proc.get("exe") or "").replace("\\","/").casefold()
+        cgroup=str(proc.get("cgroup") or "").casefold()
+        compatibility=any(marker in exe for marker in ("/wine","proton")) or any(marker in cgroup for marker in ("lutris","bottles","heroic","wine","proton"))
+        if not compatibility:return None
+        cwd=str(proc.get("cwd") or "")
+        identity_target=(cwd.rstrip("/")+"/" if cwd else "")+comm
+        display=os.path.splitext(comm)[0] or comm
+        signature={"kind":"windows_executable","value":comm,"process_name":comm,"executable_path":proc.get("exe") or None,"command_contains":comm,"observed_parent_pid":proc.get("ppid")}
+        game_id=stable_game_id("runtime",launch_target=identity_target or windows)
+        return normalized_game_record(
+            game_id=game_id,provider="runtime",display_name=display,installed=True,
+            install_path=cwd or None,working_directory=cwd or None,
+            executable=windows,compatibility="Wine/Proton",runtime_signatures=[signature],
+            install_state="running / discovered from Wine/Proton process",
+        )
+
     @staticmethod
     def _runtime_process_steam_ids(proc):
         ids={str(value) for value in proc.get("steam_appids",[]) if str(value).isdigit()}
@@ -284,4 +324,15 @@ class RuntimeDetectionMixin:
                     if evidence:
                         hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
                         return {"game":game,"game_id":game.get("game_id"),"steam_appid":str(game.get("steam_appid") or ""),"pid":pid,"field":evidence["field"],"value":evidence["value"],"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
+        # Non-Steam Wine/Proton games may have no installed provider record at
+        # all (for example Lutris -> UMU -> Battle.net).  Discover the actual
+        # Windows game process conservatively and expose it as an unconfigured
+        # runtime game so it can be monitored and assigned a profile.
+        for pid,proc in processes.items():
+            game=self._runtime_nonsteam_game_record(proc)
+            if game:
+                signature=game["runtime_signatures"][0]
+                evidence=self._runtime_signature_process_match(signature,proc)
+                hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
+                return {"game":game,"game_id":game.get("game_id"),"steam_appid":"","pid":pid,"field":evidence["field"] if evidence else "comm","value":evidence["value"] if evidence else proc.get("comm"),"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
         return None
