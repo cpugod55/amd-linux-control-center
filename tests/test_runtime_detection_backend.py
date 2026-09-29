@@ -98,6 +98,45 @@ class RuntimeDetectionExtractionTests(unittest.TestCase):
         ids=RuntimeDetectionMixin._runtime_process_steam_ids({'steam_appids':['111'],'cmdline':'STEAM_COMPAT_APP_ID=892970 /x/compatdata/555/ steam://rungameid/444'})
         self.assertEqual(ids,{'111','892970','555','444'})
 
+    def test_lutris_umu_wow_is_discovered_without_steam_record(self):
+        app=Dummy()
+        snapshot={
+            358257:{
+                'pid':358257,'ppid':357381,
+                'comm':'WowB.exe',
+                'exe':'/home/u/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64/files/lib/wine/i386-unix/wine64-preloader',
+                'cmdline':r'C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe -launcherlogin -uid wow_classic_beta',
+                'cwd':'/mnt/games/Lutris/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_',
+                'cgroup':'0::/user.slice/app.slice/app-net.lutris.Lutris@abc.service',
+                'steam_appids':[],
+            }
+        }
+        found=app._detect_runtime_game(snapshot=snapshot,games=[])
+        self.assertIsNotNone(found)
+        self.assertEqual(found['value'],r'C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe')
+        self.assertEqual(found['game']['provider'],'runtime')
+        self.assertEqual(found['game']['display_name'],'WowB')
+        self.assertEqual(found['game']['compatibility'],'Wine/Proton')
+        self.assertFalse(found['configured'])
+
+    def test_nonsteam_launchers_and_wine_helpers_are_not_games(self):
+        app=Dummy()
+        base={'exe':'/home/u/GE-Proton/files/lib/wine/i386-unix/wine64-preloader','cwd':'/mnt/games/prefix/drive_c','cgroup':'0::/app-net.lutris.Lutris@abc.service','steam_appids':[]}
+        snapshot={
+            1:{**base,'pid':1,'ppid':0,'comm':'Battle.net Launcher.exe','cmdline':r'C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe'},
+            2:{**base,'pid':2,'ppid':1,'comm':'Agent.exe','cmdline':r'C:\\ProgramData\\Battle.net\\Agent\\Agent.exe'},
+            3:{**base,'pid':3,'ppid':1,'comm':'winedevice.exe','cmdline':r'C:\\windows\\system32\\winedevice.exe'},
+        }
+        self.assertIsNone(app._detect_runtime_game(snapshot=snapshot,games=[]))
+
+    def test_runtime_game_identity_includes_prefix_working_directory(self):
+        proc={'pid':1,'ppid':0,'comm':'Game.exe','exe':'/opt/proton/files/lib/wine/wine64-preloader','cmdline':r'C:\\Games\\Game.exe','cgroup':'','steam_appids':[]}
+        a=RuntimeDetectionMixin._runtime_nonsteam_game_record({**proc,'cwd':'/mnt/a/drive_c/Games'})
+        b=RuntimeDetectionMixin._runtime_nonsteam_game_record({**proc,'cwd':'/mnt/b/drive_c/Games'})
+        self.assertIsNotNone(a)
+        self.assertIsNotNone(b)
+        self.assertNotEqual(a['game_id'],b['game_id'])
+
     def test_runtime_snapshot_refresh_is_nonblocking_and_cached(self):
         app=Dummy(); app._runtime_nonblocking_enabled=True; started=threading.Event(); release=threading.Event()
         snapshot={77:{'pid':77,'cmdline':'valheim.x86_64','comm':'valheim.x86_64','exe':'/games/Valheim/valheim.x86_64','steam_appids':['892970']}}
