@@ -27,7 +27,7 @@ class RuntimeDetectionMixin:
     @staticmethod
     def _generic_runtime_helper(name):
         low=RuntimeDetectionMixin._runtime_basename(name).casefold().removesuffix(".exe")
-        exact={"wine","wine64","wineserver","winedevice","proton","pressure-vessel","pressure-vessel-wrap","gamescope","steam","steamwebhelper","steam-runtime-supervisor","python","python3","bash","dash","sh","cmd","explorer","services","rpcss","plugplay","svchost","conhost","start"}
+        exact={"wine","wine64","wineserver","winedevice","proton","umu","umu-run","umu-launcher","pressure-vessel","pressure-vessel-wrap","gamescope","steam","steamwebhelper","steam-runtime-supervisor","python","python3","bash","dash","sh","cmd","explorer","services","rpcss","plugplay","svchost","conhost","start"}
         helper_fragments=("iscriptevaluator","script-evaluator","crashhandler","crashpad","werfault","redist","vcredist","dxsetup","installer","uninstaller","updater","updatehelper","bootstrapper")
         return low in exact or any(fragment in low for fragment in helper_fragments)
 
@@ -43,6 +43,7 @@ class RuntimeDetectionMixin:
             "steam-runtime-launcher-service","steam-runtime-launcher-interface",
             "pressure-vessel","pressure-vessel-wrap","/pressure-vessel/from-host/",
             "pv-bwrap","steamwebhelper","steam-runtime-supervisor","reaper",
+            "/umu/","umu-run","umu-launcher","umu_proton",
             "/app/vivaldi/","/app/chromium/","/app/google-chrome/",
             "--type=renderer","--type=gpu-process","crashpad-handler",
         )
@@ -317,13 +318,25 @@ class RuntimeDetectionMixin:
         # Confirmed learned signatures augment AppID detection and survive final
         # Proton process handoff when Steam identity variables are absent.
         store=self.game_profile_data.get("game_runtime_signatures",{})
+        learned_matches=[]
         for game in records:
             for signature in store.get(str(game.get("game_id")),game.get("runtime_signatures",[])):
                 for pid,proc in processes.items():
                     evidence=self._runtime_signature_process_match(signature,proc)
                     if evidence:
-                        hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
-                        return {"game":game,"game_id":game.get("game_id"),"steam_appid":str(game.get("steam_appid") or ""),"pid":pid,"field":evidence["field"],"value":evidence["value"],"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
+                        learned_matches.append((game,pid,proc,signature,evidence))
+        # Prefer a concrete Windows/native game process over a launcher/runtime
+        # signature such as UMU. Older learned wrapper signatures can remain in
+        # user data without masking the actual game process.
+        learned_matches.sort(key=lambda row:(
+            1 if self._generic_runtime_helper(row[3].get("value") or row[3].get("process_name")) or self._runtime_infrastructure_process(row[2]) else 0,
+            0 if str(row[3].get("kind") or "")=="windows_executable" else 1,
+        ))
+        for game,pid,proc,signature,evidence in learned_matches:
+            if self._generic_runtime_helper(signature.get("value") or signature.get("process_name")) or self._runtime_infrastructure_process(proc):
+                continue
+            hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
+            return {"game":game,"game_id":game.get("game_id"),"steam_appid":str(game.get("steam_appid") or ""),"pid":pid,"field":evidence["field"],"value":evidence["value"],"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
         # Non-Steam Wine/Proton games may have no installed provider record at
         # all (for example Lutris -> UMU -> Battle.net).  Discover the actual
         # Windows game process conservatively and expose it as an unconfigured
