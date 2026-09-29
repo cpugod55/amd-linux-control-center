@@ -258,6 +258,13 @@ class RuntimeDetectionMixin:
         compatibility=any(marker in exe for marker in ("/wine","proton")) or any(marker in cgroup for marker in ("lutris","bottles","heroic","wine","proton"))
         if not compatibility:return None
         cwd=str(proc.get("cwd") or "")
+        # Wine/Proton system helpers commonly run from drive_c/windows and can
+        # look exactly like games at the process level (for example tabtip.exe).
+        # A runtime-discovered game must live outside the Windows system tree.
+        cwd_norm=cwd.replace("\\","/").casefold()
+        windows_norm=str(windows or "").replace("\\","/").casefold()
+        system_markers=("/drive_c/windows/","c:/windows/","c:\\windows\\")
+        if any(marker in cwd_norm or marker in windows_norm for marker in system_markers):return None
         identity_target=(cwd.rstrip("/")+"/" if cwd else "")+comm
         display=os.path.splitext(comm)[0] or comm
         signature={"kind":"windows_executable","value":comm,"process_name":comm,"executable_path":proc.get("exe") or None,"command_contains":comm,"observed_parent_pid":proc.get("ppid")}
@@ -341,11 +348,24 @@ class RuntimeDetectionMixin:
         # all (for example Lutris -> UMU -> Battle.net).  Discover the actual
         # Windows game process conservatively and expose it as an unconfigured
         # runtime game so it can be monitored and assigned a profile.
+        runtime_candidates=[]
         for pid,proc in processes.items():
             game=self._runtime_nonsteam_game_record(proc)
-            if game:
-                signature=game["runtime_signatures"][0]
-                evidence=self._runtime_signature_process_match(signature,proc)
-                hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
-                return {"game":game,"game_id":game.get("game_id"),"steam_appid":"","pid":pid,"field":evidence["field"] if evidence else "comm","value":evidence["value"] if evidence else proc.get("comm"),"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
+            if not game:continue
+            cwd=str(proc.get("cwd") or "").replace("\\","/").casefold()
+            command=str(proc.get("cmdline") or "").casefold()
+            score=0
+            # Program Files is strong evidence for launcher-managed Windows apps;
+            # drive_c root/system locations are deliberately not rewarded.
+            if "/program files" in cwd:score+=40
+            if any(part in cwd for part in ("/games/","/game/")):score+=20
+            if "-launcherlogin" in command or "-uid " in command:score+=10
+            if proc.get("ppid") in processes:score+=2
+            runtime_candidates.append((score,pid,proc,game))
+        if runtime_candidates:
+            score,pid,proc,game=max(runtime_candidates,key=lambda row:(row[0],row[1]))
+            signature=game["runtime_signatures"][0]
+            evidence=self._runtime_signature_process_match(signature,proc)
+            hit=self._runtime_rule_for_game(game); rule=hit[1] if hit else self._runtime_unconfigured_rule(game)
+            return {"game":game,"game_id":game.get("game_id"),"steam_appid":"","pid":pid,"field":evidence["field"] if evidence else "comm","value":evidence["value"] if evidence else proc.get("comm"),"signature":signature,"rule_hit":hit,"hit":hit or (f"game:{game.get('game_id')}",rule),"configured":bool(hit)}
         return None
