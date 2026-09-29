@@ -113,7 +113,7 @@ class RuntimeDetectionExtractionTests(unittest.TestCase):
         }
         found=app._detect_runtime_game(snapshot=snapshot,games=[])
         self.assertIsNotNone(found)
-        self.assertEqual(found['value'],r'C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe')
+        self.assertEqual(found['value'],'WowB.exe')
         self.assertEqual(found['game']['provider'],'runtime')
         self.assertEqual(found['game']['display_name'],'WowB')
         self.assertEqual(found['game']['compatibility'],'Wine/Proton')
